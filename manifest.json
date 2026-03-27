@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Odoo Portal Scanner",
+  "version": "1.1",
+  "description": "Scans portal for submissions.",
+  "permissions": [
+    "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ]
+    }
+  ]
+}
