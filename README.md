@@ -15,7 +15,7 @@ This is just one part of a larger project. More updates will follow, including f
 - Browser Extension APIs
 - JavaScript / HTML / CSS
 - DOM manipulation for portal data extraction
-- 
+  
 🎯 Why This Matters
 As students, we often struggle to manage everything at once. This extension acts as a small but meaningful helper, keeping assignments visible and reducing the chance of missing deadlines.
 
