@@ -3,6 +3,13 @@
 (async function () {
 
     console.log("Portal Scanner Extension: Loaded and waiting for subjects to appear...");
+
+    // Update: A dismiss button added to improve user experience
+    // Clear dismissal flag if we detect a login page (contains password input)
+    if (document.querySelector('input[type="password"]')) {
+        sessionStorage.removeItem('portal_scanner_dismissed');
+    }
+
     let scanStarted = false;
 
     function checkAndStart() {
@@ -19,6 +26,12 @@
     const checkInterval = setInterval(checkAndStart, 1000);
 
     async function runScanner(subjectHeaders) {
+        // Update: A dismiss button added to improve user experience
+        if (sessionStorage.getItem('portal_scanner_dismissed') === 'true') {
+            console.log("Portal Scanner: Dismissed for this session. Skipping scan.");
+            return;
+        }
+
         let pendingTasksToSync = [];
         let pendingCount = 0;
 
@@ -60,6 +73,48 @@
         notifyContainer.style.flexDirection = 'column';
         notifyContainer.style.alignItems = 'flex-end';
         document.body.appendChild(notifyContainer);
+
+        // Update: A dismiss button added to improve user experience
+        const dismissBtn = document.createElement('div');
+        dismissBtn.innerHTML = '✕ Dismiss All Notifications';
+        dismissBtn.style.background = 'rgba(17, 43, 79, 0.9)';
+        dismissBtn.style.backdropFilter = 'blur(4px)';
+        dismissBtn.style.color = 'white';
+        dismissBtn.style.padding = '8px 16px';
+        dismissBtn.style.borderRadius = '20px';
+        dismissBtn.style.cursor = 'pointer';
+        dismissBtn.style.fontSize = '12px';
+        dismissBtn.style.marginBottom = '12px';
+        dismissBtn.style.fontWeight = '600';
+        dismissBtn.style.transition = 'all 0.3s ease';
+        dismissBtn.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+        dismissBtn.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.2)';
+
+        dismissBtn.onmouseover = () => {
+            dismissBtn.style.background = '#991B1E';
+            dismissBtn.style.transform = 'scale(1.05)';
+        };
+        dismissBtn.onmouseout = () => {
+            dismissBtn.style.background = 'rgba(17, 43, 79, 0.9)';
+            dismissBtn.style.transform = 'scale(1)';
+        };
+
+        dismissBtn.onclick = () => {
+            sessionStorage.setItem('portal_scanner_dismissed', 'true');
+            notifyContainer.style.opacity = '0';
+            setTimeout(() => notifyContainer.remove(), 400);
+
+            // Remove all badges and highlights added by the extension
+            document.querySelectorAll('.portal-scanner-badge').forEach(b => b.remove());
+            document.querySelectorAll('.portal-scanner-highlight').forEach(h => {
+                h.style.border = '';
+                h.style.boxShadow = '';
+                h.classList.remove('portal-scanner-highlight');
+            });
+            console.log("Portal Scanner: Notifications dismissed and scan halted.");
+        };
+
+        notifyContainer.appendChild(dismissBtn);
 
         function showToast(message, isAlert = false) {
             const toast = document.createElement('div');
@@ -194,9 +249,11 @@
                             badge.innerHTML = `🚨 ${pendingAssignments.length} Pending Uploads`;
                         }
 
+                        badge.className = 'portal-scanner-badge'; // Added class for dismissal
                         header.appendChild(badge);
                         header.style.border = '2px solid #991B1E';
                         header.style.boxShadow = '0 0 10px rgba(153, 27, 30, 0.4)';
+                        header.classList.add('portal-scanner-highlight'); // Added class for dismissal
 
                         let toastDetails = pendingAssignments.map(p => `• ${p.name} (Due: ${p.deadline})`).join('<br/>');
                         showToast(`🚨 Pending submission for:<br/><b style="font-size: 16px;">${subjectName}</b><br/><div style="font-size: 12px; margin-top: 5px;">${toastDetails}</div>`, true);
