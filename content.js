@@ -232,16 +232,73 @@
                 });
             }
         });
+        const mainWrapper = document.createElement('div');
+        mainWrapper.style.position = 'fixed';
+        mainWrapper.style.bottom = '15px';
+        mainWrapper.style.right = '0px';
+        mainWrapper.style.paddingRight = '10px';
+        mainWrapper.style.zIndex = '999999';
+        mainWrapper.style.display = 'flex';
+        mainWrapper.style.alignItems = 'flex-end';
+        mainWrapper.style.transition = 'opacity 0.4s ease';
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.innerHTML = '▶';
+        toggleBtn.style.backgroundColor = '#991B1E';
+        toggleBtn.style.color = 'white';
+        toggleBtn.style.border = 'none';
+        toggleBtn.style.padding = '14px 8px';
+        toggleBtn.style.cursor = 'pointer';
+        toggleBtn.style.borderRadius = '8px 0 0 8px';
+        toggleBtn.style.marginRight = '0px';
+        toggleBtn.style.marginBottom = '20px';
+        toggleBtn.style.fontWeight = 'bold';
+        toggleBtn.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.2)';
+        toggleBtn.style.display = 'flex';
+        toggleBtn.style.alignItems = 'center';
+
         const notifyContainer = document.createElement('div');
-        notifyContainer.style.position = 'fixed';
-        notifyContainer.style.bottom = '20px';
-        notifyContainer.style.right = '20px';
-        notifyContainer.style.zIndex = '999999';
         notifyContainer.style.fontFamily = 'Galano21, Roboto, sans-serif';
         notifyContainer.style.display = 'flex';
         notifyContainer.style.flexDirection = 'column';
-        notifyContainer.style.alignItems = 'flex-end';
-        document.body.appendChild(notifyContainer);
+        notifyContainer.style.alignItems = 'stretch';
+        notifyContainer.style.maxHeight = 'calc(100vh - 120px)'; // Strict constraint to avoid overlapping top navbar
+        notifyContainer.style.overflowY = 'auto';
+        notifyContainer.style.scrollbarWidth = 'none'; // Hide scrollbar for a seamless look
+        notifyContainer.style.width = '360px';
+        notifyContainer.style.boxSizing = 'border-box';
+
+        // Adjust the portal's body to not be covered by the notifications
+        document.body.style.transition = 'padding-right 0.3s ease';
+        document.body.style.paddingRight = '380px'; 
+
+        let isCollapsed = false;
+        toggleBtn.onclick = () => {
+            isCollapsed = !isCollapsed;
+            if (isCollapsed) {
+                notifyContainer.style.display = 'none';
+                toggleBtn.innerHTML = '◀';
+                document.body.style.paddingRight = '0px';
+            } else {
+                notifyContainer.style.display = 'flex';
+                toggleBtn.innerHTML = '▶';
+                document.body.style.paddingRight = '380px';
+            }
+        };
+
+        mainWrapper.appendChild(toggleBtn);
+        mainWrapper.appendChild(notifyContainer);
+        document.body.appendChild(mainWrapper);
+
+        // Styling scrollbar via injected stylesheet for webkit browsers
+        const styleSheet = document.createElement("style");
+        styleSheet.innerText = `
+            #portal-scanner-notify-container::-webkit-scrollbar {
+                display: none;
+            }
+        `;
+        document.head.appendChild(styleSheet);
+        notifyContainer.id = 'portal-scanner-notify-container';
 
         // Update: A dismiss button added to improve user experience
         const dismissBtn = document.createElement('div');
@@ -249,14 +306,15 @@
         dismissBtn.style.background = 'rgba(17, 43, 79, 0.9)';
         dismissBtn.style.backdropFilter = 'blur(4px)';
         dismissBtn.style.color = 'white';
-        dismissBtn.style.padding = '8px 16px';
+        dismissBtn.style.padding = '8px 12px';
         dismissBtn.style.borderRadius = '20px';
         dismissBtn.style.cursor = 'pointer';
         dismissBtn.style.fontSize = '12px';
-        dismissBtn.style.marginTop = '12px';
-        dismissBtn.style.marginBottom = '0px';
+        dismissBtn.style.marginTop = '8px';
+        dismissBtn.style.marginBottom = '4px';
         dismissBtn.style.order = '999';
         dismissBtn.style.fontWeight = '600';
+        dismissBtn.style.textAlign = 'center';
         dismissBtn.style.transition = 'all 0.3s ease';
         dismissBtn.style.border = '1px solid rgba(255, 255, 255, 0.2)';
         dismissBtn.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.2)';
@@ -272,8 +330,9 @@
 
         dismissBtn.onclick = () => {
             sessionStorage.setItem('portal_scanner_dismissed', 'true');
-            notifyContainer.style.opacity = '0';
-            setTimeout(() => notifyContainer.remove(), 400);
+            mainWrapper.style.opacity = '0';
+            document.body.style.paddingRight = '0px'; // Reset portal layout
+            setTimeout(() => mainWrapper.remove(), 400);
 
             // Remove all badges and highlights added by the extension
             document.querySelectorAll('.portal-scanner-badge').forEach(b => b.remove());
@@ -291,12 +350,14 @@
             const toast = document.createElement('div');
             toast.style.background = customColor || (isAlert ? '#991B1E' : '#112B4F');
             toast.style.color = 'white';
-            toast.style.padding = '15px 25px';
-            toast.style.marginBottom = '10px';
+            toast.style.padding = '10px 15px';
+            toast.style.margin = '0';
+            toast.style.marginBottom = '8px';
             toast.style.borderRadius = '8px';
-            toast.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.3)';
-            toast.style.fontSize = '14px';
+            toast.style.boxShadow = '0 5px 15px -3px rgba(0,0,0,0.2)';
+            toast.style.fontSize = '13px';
             toast.style.fontWeight = 'bold';
+            toast.style.boxSizing = 'border-box';
             toast.style.transition = 'opacity 0.4s ease';
 
             if (typeof message === 'string') {
@@ -358,6 +419,17 @@
                     rows.forEach(row => {
                         const actionColumn = row.querySelector('.upload_submission');
                         if (actionColumn && actionColumn.textContent.trim().toLowerCase() === 'upload') {
+                            let uploadLinkUrl = submissionUrl;
+                            if (actionColumn.tagName === 'A') {
+                                uploadLinkUrl = actionColumn.getAttribute('href') || submissionUrl;
+                            } else {
+                                const aTag = row.querySelector('a[href*="submission"], a[href*="upload"]');
+                                if (aTag) uploadLinkUrl = aTag.getAttribute('href') || submissionUrl;
+                            }
+                            if (uploadLinkUrl.startsWith('/')) {
+                                uploadLinkUrl = window.location.origin + uploadLinkUrl;
+                            }
+
                             subjectHasPending = true;
                             pendingCount++;
 
@@ -394,7 +466,7 @@
                                 }
                             }
 
-                            pendingAssignments.push({ name: assignmentName, deadline: displayDeadline, date: taskDate, time: taskTime });
+                            pendingAssignments.push({ name: assignmentName, deadline: displayDeadline, date: taskDate, time: taskTime, uploadUrl: uploadLinkUrl });
 
                             pendingTasksToSync.push({
                                 id: `portal-assign-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -426,8 +498,11 @@
                             maxUrgencyColor = '#0284C7'; // Deep Sky Blue for 2-4 days
                         }
 
+                        // Use a brighter blue for the portal badge if the toast is dark navy, so it contrasts with the portal header
+                        const badgeColor = maxUrgencyColor === '#112B4F' ? '#0284C7' : maxUrgencyColor;
+
                         const badge = document.createElement('span');
-                        badge.style.backgroundColor = maxUrgencyColor;
+                        badge.style.backgroundColor = badgeColor;
                         badge.style.color = 'white';
                         badge.style.padding = '4px 10px';
                         badge.style.borderRadius = '20px';
@@ -444,20 +519,20 @@
 
                         badge.className = 'portal-scanner-badge'; // Added class for dismissal
                         header.appendChild(badge);
-                        header.style.border = `2px solid ${maxUrgencyColor}`;
-                        header.style.boxShadow = `0 0 10px ${maxUrgencyColor}`;
+                        header.style.border = `2px solid ${badgeColor}`;
+                        header.style.boxShadow = `0 0 10px ${badgeColor}`;
                         header.classList.add('portal-scanner-highlight'); // Added class for dismissal
 
                         const toastContent = document.createElement('div');
-                        toastContent.innerHTML = `🚨 Pending submission for:<br/><b style="font-size: 16px;">${subjectName}</b><br/>`;
+                        toastContent.innerHTML = `🚨 Pending submission for:<br/><b style="font-size: 15px;">${subjectName}</b><br/>`;
 
-                        const btnStyle = "background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; margin: 4px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold;";
+                        const btnStyle = "background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 6px; margin: 4px 4px 0 0; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;";
 
                         pendingAssignments.forEach(p => {
                             const pContainer = document.createElement('div');
-                            pContainer.style.marginTop = '10px';
-                            pContainer.style.fontSize = '12px';
-                            pContainer.innerHTML = `• <b>${p.name}</b> (Due: ${p.deadline})<br/>`;
+                            pContainer.style.marginTop = '8px';
+                            pContainer.style.fontSize = '11px';
+                            pContainer.innerHTML = `• <b>${p.name.substring(0, 45)}${p.name.length > 45 ? '...' : ''}</b> (Due: ${p.deadline})<br/>`;
 
                             const focusBtn = document.createElement('button');
                             focusBtn.innerHTML = '⏱️ Focus Timer';
@@ -470,6 +545,8 @@
                             };
                             pContainer.appendChild(focusBtn);
 
+                            /*
+                            // Alarm code kept securely commented out as requested
                             const alarmBtn = document.createElement('button');
                             alarmBtn.innerHTML = '⏰ Set Alarm';
                             alarmBtn.style.cssText = btnStyle;
@@ -545,14 +622,27 @@
                                         } catch (e) {
                                             console.error("Failed to play audio alarm", e);
                                         }
-                                        alert(`⏰ ALARM: Time to work on ${p.name}!`);
+                                        alert(\`⏰ ALARM: Time to work on \${p.name}!\`);
                                     }, mins * 60000);
 
-                                    alarmBtn.innerHTML = `⏰ Alarm in ${mins}m`;
+                                    alarmBtn.innerHTML = \`⏰ Alarm in \${mins}m\`;
                                     modal.remove();
                                 };
                             };
                             pContainer.appendChild(alarmBtn);
+                            */
+
+                            const submitBtn = document.createElement('button');
+                            submitBtn.innerHTML = '📤 Go to Upload';
+                            submitBtn.style.cssText = btnStyle;
+                            submitBtn.onclick = () => {
+                                if (p.uploadUrl) {
+                                    window.open(p.uploadUrl, '_blank');
+                                } else {
+                                    alert("Submission URL could not be found for this assignment.");
+                                }
+                            };
+                            pContainer.appendChild(submitBtn);
 
                             const calBtn = document.createElement('button');
                             calBtn.innerHTML = '📅 Add to Calendar';
