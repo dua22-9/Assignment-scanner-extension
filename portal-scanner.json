@@ -1,0 +1,317 @@
+{
+  "name": "portal-scanner",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "portal-scanner",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e32cfba7-dae9-4dca-96c6-89f1ea0b1fc2",
+      "name": "Webhook",
+      "webhookId": "d0a3d3f9-dad6-4c21-a498-a6d3877e581d"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "database_setup",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "baa030bc-8ac0-49d5-bfa9-07a6d3bdfbcb"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Database setup"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "6ad43758-9f7f-465d-bea7-46205cc6d84b",
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "notification",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Notification"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "3b200ef1-382a-480f-88e6-79502bd258a8",
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "status_clear",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Status Clear"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "b6ebdb0f-6dcf-4abb-bf30-e64e69000dc4",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "whatsapp_settings"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "sender_number",
+              "value": "GreenApi"
+            },
+            {
+              "column": "receiver_number",
+              "value": "={{ $('Webhook').item.json.body.receiverNumber }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        416,
+        -96
+      ],
+      "id": "ece8e2b7-5c7b-4491-88d9-663597788a6b",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "mySql": {
+          "id": "NbZmLAbTWQ4GAd7X",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "portal_credentials",
+          "mode": "list",
+          "cachedResultName": "portal_credentials"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "username",
+              "value": "={{ $('Webhook').item.json.body.portalUsername }}"
+            },
+            {
+              "column": "encoded_password",
+              "value": "={{ $('Webhook').item.json.body.portalPasswordSecure }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        656,
+        -96
+      ],
+      "id": "de03d93a-7c01-41e5-840d-d0a62d8eb3aa",
+      "name": "Insert rows in a table1",
+      "credentials": {
+        "mySql": {
+          "id": "NbZmLAbTWQ4GAd7X",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://7107.api.greenapi.com/waInstance7107611905/sendMessage/fa0e17f846fe42929894a0ac4eab693ed7f0f26ba2f14736b0",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $json.body.receiverNumber.replace('+', '') }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=🚨 *New Assignment Detected!*  \n*Subject:* {{ $json.body.subject }} \n*Assignment:* {{ $json.body.assignmentName }} \n*Due Date:* {{ $json.body.dueDate }}  \n🗓️ *Add to Calendar:* {{ $json.body.calendarLink }}\n📤 *Upload Now:* {{ $json.body.uploadLink }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        640,
+        48
+      ],
+      "id": "a45b555b-65c5-4e80-9b4d-457bfdebd159",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://7107.api.greenapi.com/waInstance7107611905/sendMessage/fa0e17f846fe42929894a0ac4eab693ed7f0f26ba2f14736b0",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $json.body.receiverNumber.replace('+', '') }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=✅ No assignments pending!"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        176
+      ],
+      "id": "a03f4fb9-e3ef-48bd-b234-cbf0e46bcefe",
+      "name": "HTTP Request1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "1a5ec8d6-d358-4d87-9961-c7f3cd1119b7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "01ed6146b576e43f3729c13917789fcc70f2894052ab1934cb3f593fc2095f35"
+  },
+  "id": "FWZxR6sKnhewnXK8",
+  "tags": []
+}
