@@ -2,31 +2,102 @@
 
 (async function () {
 
-    console.log("Portal Scanner Extension: Loaded and waiting for subjects to appear...");
+    try {
+        console.log("Portal Scanner Extension: System Initializing...");
 
     // --- [NEW] Ghost Scanner: Auto-Recovery & Background Monitoring ---
-    const AUTO_SCAN_INTERVAL = 2 * 60 * 1000; // 15 Minutes
+    const AUTO_SCAN_INTERVAL = 2 * 60 * 1000; // 2 Minutes
+    const N8N_BASE_URL = 'http://localhost:5678'; // Change this to your Ngrok URL (e.g. https://xyz.ngrok.io) for global access
 
-    function initAutoRecovery() {
-        // 1. Handle Portal Login Page
+    // Universal Storage Helper (Syncs between chrome.storage and localStorage for redundancy)
+    async function getStorage(key, defaultValue = null) {
+        return new Promise((resolve) => {
+            if (typeof chrome !== 'undefined' && chrome.storage) {
+                chrome.storage.local.get([key], (result) => {
+                    resolve(result[key] !== undefined ? result[key] : (localStorage.getItem(key) || defaultValue));
+                });
+            } else {
+                resolve(localStorage.getItem(key) || defaultValue);
+            }
+        });
+    }
+
+    async function setStorage(key, value) {
+        localStorage.setItem(key, value);
+        if (typeof chrome !== 'undefined' && chrome.storage) {
+            await chrome.storage.local.set({ [key]: value });
+        }
+    }
+
+    async function initAutoRecovery() {
         const loginUrl = window.location.href.toLowerCase();
+        const user = await getStorage('portal_auto_user');
+
+        // 1. Handle Portal Login Page & Credentials Injection
         if (loginUrl.includes('login') || loginUrl.includes('auth')) {
-            // Find Microsoft Login Button (Common selector for many portals)
+            const passBase64 = await getStorage('portal_auto_pass');
+
+            // Find Microsoft Login Button
             const msBtn = Array.from(document.querySelectorAll('button, a, div'))
                 .find(el => el.textContent.toLowerCase().includes('microsoft') || el.id?.toLowerCase().includes('microsoft'));
 
             if (msBtn) {
-                console.log("Ghost Scanner: Login page detected. Triggering Microsoft Auth...");
-                setTimeout(() => msBtn.click(), 2000); // 2 second delay to let page load
+                console.log("Ghost Scanner: Microsoft login button found. Redirecting...");
+                setTimeout(() => msBtn.click(), 2000);
+            } else if (user && passBase64) {
+                // If standard login form exists, try to fill it
+                const passInput = document.querySelector('input[type="password"]');
+                if (passInput) {
+                    const form = passInput.closest('form');
+                    const userInput = form?.querySelector('input[type="text"], input[type="email"]');
+                    if (userInput && !userInput.value) {
+                        console.log("Ghost Scanner: Standard login form detected. Injecting credentials...");
+                        userInput.value = user;
+                        passInput.value = atob(passBase64);
+                        setTimeout(() => form.submit(), 1000);
+                    }
+                }
             }
         }
 
-        // 2. Handle Microsoft Account Picker (Attempt to auto-select saved account)
+        // 2. Handle Microsoft Login Specific Screens (Picker, Password, Stay Signed In)
         if (loginUrl.includes('login.microsoftonline.com')) {
-            const firstAccount = document.querySelector('div[role="button"][data-test-id]');
-            if (firstAccount) {
-                console.log("Ghost Scanner: Microsoft account picker detected. Selecting account...");
-                setTimeout(() => firstAccount.click(), 1500);
+            // A. Account Picker: Select the specific user account if possible
+            const accounts = Array.from(document.querySelectorAll('div[role="button"][data-test-id], .table-row, [data-test-id]'));
+            let targetAccount = null;
+
+            if (user) {
+                targetAccount = accounts.find(el =>
+                    el.textContent.toLowerCase().includes(user.toLowerCase()) ||
+                    el.getAttribute('data-test-id')?.toLowerCase().includes(user.toLowerCase())
+                );
+            }
+
+            // If specific account not found, pick the first available tile
+            if (!targetAccount) targetAccount = document.querySelector('div[role="button"][data-test-id], #otherTile');
+
+            if (targetAccount) {
+                console.log("Ghost Scanner: Microsoft account tile detected. Selecting...");
+                setTimeout(() => targetAccount.click(), 1500);
+            }
+
+            // B. Microsoft Password Field (if not autofilled)
+            const msPass = document.querySelector('input[name="passwd"], input[type="password"]');
+            if (msPass && !msPass.value) {
+                const passBase64 = await getStorage('portal_auto_pass');
+                if (passBase64) {
+                    console.log("Ghost Scanner: Microsoft password field detected. Injecting...");
+                    msPass.value = atob(passBase64);
+                    const submitBtn = document.querySelector('input[type="submit"], #idSIButton9');
+                    if (submitBtn) setTimeout(() => submitBtn.click(), 1000);
+                }
+            }
+
+            // C. "Stay signed in?" screen
+            const stayBtn = document.querySelector('input[type="submit"][id="idSIButton9"], #idSIButton9');
+            if (stayBtn && (document.body.textContent.includes('Stay signed in?') || document.body.textContent.includes('Keep me signed in'))) {
+                console.log("Ghost Scanner: Confirming 'Stay signed in' prompt...");
+                setTimeout(() => stayBtn.click(), 1000);
             }
         }
     }
@@ -34,15 +105,21 @@
     // Initialize Auto-Recovery
     initAutoRecovery();
 
-    // 3. Background Monitoring: Refresh every 15 mins to keep session alive and scan
-    setInterval(() => {
+    // 3. Background Monitoring & Session Keep-Alive
+    setInterval(async () => {
         const currentUrl = window.location.href;
-        // Only refresh if we are on a main portal page (not in the middle of a form)
         if (currentUrl.includes('dashboard') || currentUrl.includes('assignment')) {
-            console.log("Ghost Scanner: Performing scheduled background scan...");
-            window.location.reload();
+            console.log("Ghost Scanner: Keeping session alive...");
+            // Dummy fetch to keep session cookie active
+            fetch(currentUrl).catch(() => { });
+
+            // Periodically refresh to catch new assignments even if laptop was idle
+            const lastScan = parseInt(await getStorage('portal_last_scan_time', '0'));
+            if (Date.now() - lastScan > AUTO_SCAN_INTERVAL) {
+                window.location.reload();
+            }
         }
-    }, AUTO_SCAN_INTERVAL);
+    }, 60 * 1000); // Check every minute
     // --- End Ghost Scanner Logic ---
 
     // Update: A dismiss button added to improve user experience
@@ -61,9 +138,9 @@
                 if (userInput && passInput.value) {
                     const encodedPass = btoa(passInput.value);
 
-                    // 1. Save to Local Storage
-                    localStorage.setItem('portal_auto_user', userInput.value);
-                    localStorage.setItem('portal_auto_pass', encodedPass);
+                    // 1. Save to Local Storage & Chrome Storage
+                    setStorage('portal_auto_user', userInput.value);
+                    setStorage('portal_auto_pass', encodedPass);
 
                     // 2. Save to Cookies (Expires in 30 days)
                     const d = new Date();
@@ -72,13 +149,6 @@
                     document.cookie = "portal_auto_user=" + userInput.value + ";" + expires + ";path=/";
                     document.cookie = "portal_auto_pass=" + encodedPass + ";" + expires + ";path=/";
 
-                    // 3. Save to Chrome Extension Storage (if available)
-                    if (typeof chrome !== 'undefined' && chrome.storage) {
-                        chrome.storage.local.set({
-                            portal_auto_user: userInput.value,
-                            portal_auto_pass: encodedPass
-                        });
-                    }
                 }
             });
         }
@@ -86,17 +156,17 @@
 
     const defaultAlarmTone = "https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg";
 
-    function getFocusStreak() {
-        return parseInt(localStorage.getItem('portal_focus_streak_minutes') || '0');
+    async function getFocusStreak() {
+        return parseInt(await getStorage('portal_focus_streak_minutes', '0'));
     }
 
-    function addFocusStreak(mins) {
-        let current = getFocusStreak();
-        localStorage.setItem('portal_focus_streak_minutes', current + mins);
+    async function addFocusStreak(mins) {
+        let current = await getFocusStreak();
+        await setStorage('portal_focus_streak_minutes', (current + mins).toString());
         return current + mins;
     }
 
-    function createPomodoroUI(minutes, assignmentName) {
+    async function createPomodoroUI(minutes, assignmentName) {
         const overlay = document.createElement('div');
         overlay.style.position = 'fixed';
         overlay.style.top = '0';
@@ -195,7 +265,7 @@
         streakText.style.bottom = '30px';
         streakText.style.fontSize = '14px';
         streakText.style.opacity = '0.8';
-        streakText.innerHTML = `🔥 Total Focus Streak: ${getFocusStreak()} minutes`;
+        streakText.innerHTML = `🔥 Total Focus Streak: ${await getFocusStreak()} minutes`;
 
         overlay.appendChild(header);
         overlay.appendChild(circleWrapper);
@@ -208,12 +278,12 @@
 
         let timeLeft = minutes * 60;
         let originalTime = timeLeft;
-        let interval = setInterval(() => {
+        let interval = setInterval(async () => {
             timeLeft--;
             if (timeLeft <= 0) {
                 clearInterval(interval);
                 timerDisplay.innerHTML = "00:00";
-                const newStreak = addFocusStreak(minutes);
+                const newStreak = await addFocusStreak(minutes);
                 streakText.innerHTML = `🔥 Total Focus Streak: ${newStreak} minutes`;
                 try {
                     const audio = new Audio(defaultAlarmTone);
@@ -258,17 +328,52 @@
     function checkAndStart() {
         if (scanStarted) return;
         const subjectHeaders = document.querySelectorAll('.card-header.bg-primary');
-        if (subjectHeaders.length === 0) return;
+        if (subjectHeaders.length === 0) {
+            if (Math.random() > 0.9) console.log("Portal Scanner: Waiting for portal subjects to load...");
+            return;
+        }
 
         scanStarted = true;
         clearInterval(checkInterval);
-        console.log("Portal Scanner: Found subjects, scanning for pending submissions...");
+        console.log("Portal Scanner: Subjects found! Initializing Scanner UI...");
         runScanner(subjectHeaders);
     }
 
     const checkInterval = setInterval(checkAndStart, 1000);
 
     async function runScanner(subjectHeaders) {
+        console.log("Portal Scanner: Building UI and starting background scan sequence...");
+
+        // --- Cross-Device Sync: Fetch settings from DB if missing locally ---
+        const localSender = await getStorage('wa_sender_number');
+        const localReceiver = await getStorage('wa_receiver_number');
+        const portalUserForSync = await getStorage('portal_auto_user');
+
+        if ((!localSender || !localReceiver) && portalUserForSync) {
+            console.log("Portal Scanner: Settings missing locally. Attempting to sync from Database for user:", portalUserForSync);
+            try {
+                const syncRes = await fetch(`${N8N_BASE_URL}/webhook/portal-scanner`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'get_settings',
+                        portalUsername: portalUserForSync
+                    })
+                });
+                if (syncRes.ok) {
+                    const dbSettings = await syncRes.json();
+                    if (dbSettings.senderNumber && dbSettings.receiverNumber) {
+                        await setStorage('wa_sender_number', dbSettings.senderNumber);
+                        await setStorage('wa_receiver_number', dbSettings.receiverNumber);
+                        console.log("Portal Scanner: Settings successfully restored from Database.");
+                        // Reload to apply UI changes
+                        window.location.reload();
+                    }
+                }
+            } catch (e) {
+                console.error("Portal Scanner: Database sync failed", e);
+            }
+        }
         // Update: A dismiss button added to improve user experience
         if (sessionStorage.getItem('portal_scanner_dismissed') === 'true') {
             console.log("Portal Scanner: Dismissed for this session. Skipping scan.");
@@ -424,23 +529,25 @@
 
         // --- Settings Page for WhatsApp Notifications ---
         const settingsPanel = document.createElement('div');
-        settingsPanel.style.background = '#112B4F'; // Portal Dark Blue
+        settingsPanel.style.background = 'rgba(17, 43, 79, 0.9)'; // Slightly transparent
         settingsPanel.style.color = 'white';
-        settingsPanel.style.padding = '12px';
+        settingsPanel.style.padding = '6px';
         settingsPanel.style.borderRadius = '8px';
-        settingsPanel.style.marginTop = '8px';
-        settingsPanel.style.marginBottom = '4px';
-        settingsPanel.style.order = '998';
-        settingsPanel.style.border = '1px solid rgba(255, 255, 255, 0.2)';
-        settingsPanel.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.2)';
+        settingsPanel.style.marginTop = '4px';
+        settingsPanel.style.marginBottom = '2px';
+        settingsPanel.style.order = '999';
+        settingsPanel.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+        settingsPanel.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
         settingsPanel.style.fontSize = '12px';
 
-        const settingsTitle = document.createElement('div');
-        settingsTitle.innerHTML = '📱 WhatsApp Alerts (n8n)';
-        settingsTitle.style.fontWeight = 'bold';
-        settingsTitle.style.marginBottom = '8px';
-        settingsTitle.style.textAlign = 'center';
-        settingsPanel.appendChild(settingsTitle);
+
+        // --- View Logic: Toggle between 'Profile' and 'Edit' modes ---
+        const inputWrapper = document.createElement('div');
+        const profileView = document.createElement('div');
+        profileView.style.display = 'flex';
+        profileView.style.gap = '4px';
+        profileView.style.alignItems = 'center';
+        profileView.style.display = 'none';
 
         const createInput = (placeholder, id) => {
             const input = document.createElement('input');
@@ -459,112 +566,153 @@
             return input;
         };
 
+        const senderInput = createInput('Sender (Instance ID)', 'wa-sender');
         const receiverInput = createInput('Receiver (+92XXXXXXXXXX)', 'wa-receiver');
-
-        receiverInput.value = localStorage.getItem('wa_receiver_number') || '';
+        inputWrapper.appendChild(senderInput);
+        inputWrapper.appendChild(receiverInput);
 
         const validationMsg = document.createElement('div');
-        validationMsg.style.color = '#ff6b6b'; // Red color for invalid
+        validationMsg.style.color = '#ff6b6b';
         validationMsg.style.fontSize = '10px';
         validationMsg.style.marginBottom = '8px';
         validationMsg.style.minHeight = '12px';
         validationMsg.style.textAlign = 'center';
+        inputWrapper.appendChild(validationMsg);
 
         const saveBtn = document.createElement('button');
-        saveBtn.innerHTML = 'Save Numbers';
+        saveBtn.innerHTML = 'Save & Secure';
         saveBtn.style.width = '100%';
         saveBtn.style.padding = '6px';
-        saveBtn.style.backgroundColor = '#0284C7'; // Portal Light Blue
+        saveBtn.style.backgroundColor = '#0284C7';
         saveBtn.style.color = 'white';
         saveBtn.style.border = 'none';
         saveBtn.style.borderRadius = '4px';
         saveBtn.style.cursor = 'pointer';
         saveBtn.style.fontWeight = 'bold';
-        saveBtn.style.transition = 'background 0.3s ease';
+        inputWrapper.appendChild(saveBtn);
 
-        saveBtn.onmouseover = () => saveBtn.style.backgroundColor = '#0369A1';
-        saveBtn.onmouseout = () => saveBtn.style.backgroundColor = '#0284C7';
+        const editBtn = document.createElement('button');
+        editBtn.innerHTML = '⚙️';
+        editBtn.style.width = '40px';
+        editBtn.style.padding = '4px 8px';
+        editBtn.style.backgroundColor = 'rgba(255,255,255,0.1)';
+        editBtn.style.color = 'white';
+        editBtn.style.border = '1px solid rgba(255,255,255,0.2)';
+        editBtn.style.borderRadius = '6px';
+        editBtn.style.cursor = 'pointer';
+        editBtn.style.fontSize = '14px';
+        editBtn.title = 'Edit Connection Settings';
+        editBtn.onclick = () => {
+            profileView.style.display = 'none';
+            inputWrapper.style.display = 'block';
+        };
+
+        const resendAllBtn = document.createElement('button');
+        resendAllBtn.innerHTML = '📲 Resend Whole List';
+        resendAllBtn.style.flex = '1';
+        resendAllBtn.style.padding = '4px 8px';
+        resendAllBtn.style.backgroundColor = '#0284C7';
+        resendAllBtn.style.color = 'white';
+        resendAllBtn.style.border = 'none';
+        resendAllBtn.style.borderRadius = '6px';
+        resendAllBtn.style.cursor = 'pointer';
+        resendAllBtn.style.fontSize = '11px';
+        resendAllBtn.style.fontWeight = 'bold';
+        resendAllBtn.onclick = async () => {
+            if (confirm("This will clear the history and send WhatsApp alerts for all assignments again. Continue?")) {
+                await setStorage('wa_notified_assignments', '[]');
+                await setStorage('wa_clear_status_sent', 'false');
+                window.location.reload();
+            }
+        };
+
+        const updateUIState = async () => {
+            const s = await getStorage('wa_sender_number');
+            const r = await getStorage('wa_receiver_number');
+            if (s && r) {
+                senderInput.value = s;
+                receiverInput.value = r;
+                profileView.innerHTML = '';
+                
+                // Tight layout for the single row
+                profileView.style.display = 'flex';
+                profileView.style.flexDirection = 'row';
+                profileView.style.alignItems = 'stretch';
+                profileView.style.gap = '5px';
+                profileView.style.marginTop = '2px';
+
+                profileView.appendChild(resendAllBtn);
+                profileView.appendChild(editBtn);
+                
+                profileView.style.display = 'flex';
+                inputWrapper.style.display = 'none';
+            } else {
+                profileView.style.display = 'none';
+                inputWrapper.style.display = 'block';
+            }
+        };
 
         const validatePhone = (num) => {
             if (!num.startsWith('+92')) return 'Must start with +92';
-            if (num.length !== 13) return 'Must be exactly 13 characters (e.g. +923314630666)';
+            if (num.length !== 13) return 'Must be exactly 13 characters';
             return true;
         };
 
-        saveBtn.onclick = () => {
+        saveBtn.onclick = async () => {
+            const sVal = senderInput.value.trim();
             const rVal = receiverInput.value.trim();
-
             const rValid = validatePhone(rVal);
 
-            if (rValid !== true) {
+            if (!sVal || rValid !== true) {
                 validationMsg.style.color = '#ff6b6b';
-                validationMsg.innerHTML = `Receiver: ${rValid}`;
+                validationMsg.innerHTML = !sVal ? 'Sender ID required' : `Receiver: ${rValid}`;
                 return;
             }
 
-            localStorage.setItem('wa_receiver_number', rVal);
+            await setStorage('wa_sender_number', sVal);
+            await setStorage('wa_receiver_number', rVal);
 
-            // --- Secure Database Sync Logic ---
-            const portalUser = localStorage.getItem('portal_auto_user') || '';
-            const portalPassBase64 = localStorage.getItem('portal_auto_pass') || '';
-
-            // Basic Encryption (XOR + Base64) to secure the password for FYP standards
+            const portalUser = await getStorage('portal_auto_user', '');
+            const portalPassBase64 = await getStorage('portal_auto_pass', '');
             const encryptPassword = (str, key) => {
-                let result = '';
-                for (let i = 0; i < str.length; i++) {
-                    result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
-                }
-                return btoa(result);
+                let res = '';
+                for (let i = 0; i < str.length; i++) res += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+                return btoa(res);
             };
 
-            // We take the raw password (decode the basic base64 first) and securely encrypt it
             let securePass = '';
             if (portalPassBase64) {
-                try {
-                    const rawPass = atob(portalPassBase64);
-                    securePass = encryptPassword(rawPass, 'FYP_SECURE_KEY_2026');
-                } catch (e) { }
+                try { securePass = encryptPassword(atob(portalPassBase64), 'FYP_SECURE_KEY_2026'); } catch (e) { }
             }
 
-            const n8nWebhookUrl = 'http://localhost:5678/webhook/portal-scanner'; // Replace with your n8n Webhook URL
-
-            const setupPayload = {
-                type: 'database_setup',
-                receiverNumber: rVal,
-                portalUsername: portalUser,
-                portalPasswordSecure: securePass
-            };
-
             validationMsg.style.color = '#0284C7';
-            validationMsg.innerHTML = 'Syncing to Database...';
+            validationMsg.innerHTML = 'Syncing...';
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout to fail fast
-
-            fetch(n8nWebhookUrl, {
+            fetch(`${N8N_BASE_URL}/webhook/portal-scanner`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(setupPayload),
-                signal: controller.signal
+                body: JSON.stringify({
+                    type: 'database_setup',
+                    senderNumber: sVal,
+                    receiverNumber: rVal,
+                    portalUsername: portalUser,
+                    portalPasswordSecure: securePass
+                })
             }).then(res => {
-                clearTimeout(timeoutId);
                 if (res.ok) {
-                    validationMsg.style.color = '#22C55E';
-                    validationMsg.innerHTML = 'Securely Synced & Saved to Database!';
+                    updateUIState();
                 } else {
-                    throw new Error('Server error');
+                    validationMsg.innerHTML = 'Saved locally, Sync failed.';
                 }
             }).catch(() => {
-                clearTimeout(timeoutId);
-                validationMsg.style.color = '#ff6b6b';
-                validationMsg.innerHTML = 'Saved locally, but failed to sync to n8n (Check URL).';
+                validationMsg.innerHTML = 'Saved locally, Sync failed.';
             });
         };
 
-        settingsPanel.appendChild(settingsTitle);
-        settingsPanel.appendChild(receiverInput);
-        settingsPanel.appendChild(validationMsg);
-        settingsPanel.appendChild(saveBtn);
+        settingsPanel.appendChild(profileView);
+        settingsPanel.appendChild(inputWrapper);
+        updateUIState();
+
 
         notifyContainer.appendChild(settingsPanel);
 
@@ -900,23 +1048,26 @@
         });
 
         await Promise.all(scanPromises);
+        await setStorage('portal_last_scan_time', Date.now().toString());
 
         checkingToast.remove();
 
-        const receiver = localStorage.getItem('wa_receiver_number');
+        const sender = await getStorage('wa_sender_number', '7107611905');
+        const receiver = await getStorage('wa_receiver_number');
 
         if (pendingCount === 0) {
             showToast('✅ Scanned all subjects: No pending submissions found!');
 
             // Send clear status to n8n ONLY ONCE to prevent spam
-            const clearSent = localStorage.getItem('wa_clear_status_sent');
+            const clearSent = await getStorage('wa_clear_status_sent');
             if (receiver && clearSent !== 'true') {
                 const payload = {
                     type: 'status_clear',
+                    senderNumber: sender,
                     receiverNumber: receiver,
                     message: 'No assignments pending!'
                 };
-                const n8nWebhookUrl = 'http://localhost:5678/webhook/portal-scanner';
+                const n8nWebhookUrl = `${N8N_BASE_URL}/webhook/portal-scanner`;
                 const notifController = new AbortController();
                 const notifTimeout = setTimeout(() => notifController.abort(), 3000);
 
@@ -926,7 +1077,7 @@
                     body: JSON.stringify(payload),
                     signal: notifController.signal
                 }).then(() => {
-                    localStorage.setItem('wa_clear_status_sent', 'true');
+                    setStorage('wa_clear_status_sent', 'true');
                 }).catch(() => { });
             }
         } else {
@@ -934,9 +1085,9 @@
 
             if (receiver) {
                 // Reset clear status since assignments were found
-                localStorage.setItem('wa_clear_status_sent', 'false');
+                await setStorage('wa_clear_status_sent', 'false');
 
-                let notifiedAssignments = JSON.parse(localStorage.getItem('wa_notified_assignments') || '[]');
+                let notifiedAssignments = JSON.parse(await getStorage('wa_notified_assignments', '[]'));
                 let newAssignmentsFound = [];
 
                 pendingTasksToSync.forEach(task => {
@@ -951,15 +1102,15 @@
 
                 if (newAssignmentsFound.length > 0) {
                     // Prevent duplicate notifications by marking them as notified
-                    localStorage.setItem('wa_notified_assignments', JSON.stringify(notifiedAssignments));
+                    await setStorage('wa_notified_assignments', JSON.stringify(notifiedAssignments));
 
                     // Send data to n8n Webhook Node
-                    const n8nWebhookUrl = 'http://localhost:5678/webhook/portal-scanner';
+                    const n8nWebhookUrl = `${N8N_BASE_URL}/webhook/portal-scanner`;
 
                     newAssignmentsFound.forEach(task => {
                         const subj = task.text.split(' - ')[0] || 'Unknown Subject';
                         const assign = task.text.split(' - ').slice(1).join(' - ') || task.text;
-                        
+
                         // Pre-calculate Google Calendar Link
                         const title = encodeURIComponent(`Assignment: ${assign}`);
                         const details = encodeURIComponent(`Subject: ${subj}\nDue: ${task.date} ${task.time}`);
@@ -977,6 +1128,7 @@
 
                         const payload = {
                             type: 'notification',
+                            senderNumber: sender,
                             receiverNumber: receiver,
                             assignmentName: assign,
                             subject: subj,
@@ -1005,5 +1157,8 @@
                 }
             }
         }
+    }
+    } catch (e) {
+        console.error("Portal Scanner Extension: CRITICAL CRASH DURING INIT", e);
     }
 })();

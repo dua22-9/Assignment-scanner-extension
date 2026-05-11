@@ -94,6 +94,30 @@
               },
               "renameOutput": true,
               "outputKey": "Status Clear"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "get-settings-id",
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "get_settings",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Get Settings"
             }
           ]
         },
@@ -110,6 +134,7 @@
     },
     {
       "parameters": {
+        "operation": "insert",
         "table": {
           "__rl": true,
           "mode": "list",
@@ -120,11 +145,15 @@
           "values": [
             {
               "column": "sender_number",
-              "value": "GreenApi"
+              "value": "={{ $('Webhook').item.json.body.senderNumber }}"
             },
             {
               "column": "receiver_number",
               "value": "={{ $('Webhook').item.json.body.receiverNumber }}"
+            },
+            {
+              "column": "portal_username",
+              "value": "={{ $('Webhook').item.json.body.portalUsername }}"
             }
           ]
         },
@@ -137,7 +166,72 @@
         -96
       ],
       "id": "ece8e2b7-5c7b-4491-88d9-663597788a6b",
-      "name": "Insert rows in a table",
+      "name": "Insert Settings",
+      "credentials": {
+        "mySql": {
+          "id": "NbZmLAbTWQ4GAd7X",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT sender_number as senderNumber, receiver_number as receiverNumber FROM whatsapp_settings WHERE portal_username = '{{ $json.body.portalUsername }}' ORDER BY id DESC LIMIT 1"
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        416,
+        304
+      ],
+      "id": "get-settings-mysql",
+      "name": "Fetch Saved Settings",
+      "credentials": {
+        "mySql": {
+          "id": "NbZmLAbTWQ4GAd7X",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "assignment_notifications",
+          "mode": "list"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "subject_name",
+              "value": "={{ $json.body.subject }}"
+            },
+            {
+              "column": "assignment_name",
+              "value": "={{ $json.body.assignmentName }}"
+            },
+            {
+              "column": "due_date",
+              "value": "={{ $json.body.dueDate }}"
+            },
+            {
+              "column": "receiver_number",
+              "value": "={{ $json.body.receiverNumber }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        48
+      ],
+      "id": "log-notification-node",
+      "name": "Log Notification",
       "credentials": {
         "mySql": {
           "id": "NbZmLAbTWQ4GAd7X",
@@ -186,7 +280,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://7107.api.greenapi.com/waInstance7107611905/sendMessage/fa0e17f846fe42929894a0ac4eab693ed7f0f26ba2f14736b0",
+        "url": "=https://7107.api.greenapi.com/waInstance{{ $json.body.senderNumber }}/sendMessage/fa0e17f846fe42929894a0ac4eab693ed7f0f26ba2f14736b0",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -211,16 +305,16 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        640,
+        680,
         48
       ],
       "id": "a45b555b-65c5-4e80-9b4d-457bfdebd159",
-      "name": "HTTP Request"
+      "name": "Send WhatsApp Notif"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://7107.api.greenapi.com/waInstance7107611905/sendMessage/fa0e17f846fe42929894a0ac4eab693ed7f0f26ba2f14736b0",
+        "url": "=https://7107.api.greenapi.com/waInstance{{ $json.body.senderNumber }}/sendMessage/fa0e17f846fe42929894a0ac4eab693ed7f0f26ba2f14736b0",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -269,14 +363,14 @@
       "main": [
         [
           {
-            "node": "Insert rows in a table",
+            "node": "Insert Settings",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "HTTP Request",
+            "node": "Log Notification",
             "type": "main",
             "index": 0
           }
@@ -287,14 +381,32 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Fetch Saved Settings",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
-    "Insert rows in a table": {
+    "Insert Settings": {
       "main": [
         [
           {
             "node": "Insert rows in a table1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Notification": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Notif",
             "type": "main",
             "index": 0
           }
@@ -307,11 +419,8 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "1a5ec8d6-d358-4d87-9961-c7f3cd1119b7",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "01ed6146b576e43f3729c13917789fcc70f2894052ab1934cb3f593fc2095f35"
-  },
-  "id": "FWZxR6sKnhewnXK8",
-  "tags": []
+  }
 }
